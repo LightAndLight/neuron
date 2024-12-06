@@ -61,6 +61,7 @@ import Relude
 import System.Directory (doesFileExist, removeFile, withCurrentDirectory)
 import qualified System.Directory.Contents as DC
 import qualified System.Directory.Contents.Extra as DC
+import System.Directory.Contents.Extra (buildDirTreeFiltered)
 import System.FilePath (takeExtension, (</>))
 
 writeRoutes :: GenCommand -> DMap Route Identity -> NonEmpty (DSum Route Identity) -> App Int
@@ -228,28 +229,26 @@ locateZettelFiles = do
   -- Run with notes dir as PWD, so that DirTree uses relative paths throughout.
   d <- getNotesDir
   liftIO $
-    withCurrentDirectory d $
-      -- Building with "." as root directory ensures that the returned tree
-      -- structure consistently uses the "./" prefix for all paths. This
-      -- assumption then holds elsewhere in neuron.
-      DC.buildDirTree "." >>= \case
-        Just t -> do
-          -- Look for neuron.dhall
-          case DC.walkContents "neuron.dhall" t of
-            Just (DC.DirTree_File _ dhallFp) -> do
-              Config.getConfigFromFile dhallFp >>= \case
-                Left e ->
-                  pure $ Left e
-                Right config ->
-                  Plugin.filterSources (Config.getPlugins config) t >>= \case
-                    Nothing ->
-                      pure $ Left "No source files to process"
-                    Just tF ->
-                      pure $ Right (config, tF)
-            _ ->
-              pure $ Left $ Config.missingConfigError d
-        Nothing ->
-          pure $ Left "Empty directory"
+    withCurrentDirectory d $ do
+      let dhallFp = "neuron.dhall"
+      exists <- doesFileExist dhallFp
+      if not exists
+        then pure $ Left $ Config.missingConfigError d
+        else do
+          Config.getConfigFromFile dhallFp >>= \case
+            Left e ->
+              pure $ Left e
+            Right config -> do
+              predicate <- Plugin.getFilterSources (Config.getPlugins config)
+
+              -- Building with "." as root directory ensures that the returned tree
+              -- structure consistently uses the "./" prefix for all paths. This
+              -- assumption then holds elsewhere in neuron.
+              buildDirTreeFiltered predicate "." >>= \case
+                Just t ->
+                  pure $ Right (config, t)
+                Nothing ->
+                  pure $ Left "No source files to process"
 
 -- | Load the Zettelkasten from disk, using the given list of zettel files
 loadZettelkastenFromFilesWithPlugins ::

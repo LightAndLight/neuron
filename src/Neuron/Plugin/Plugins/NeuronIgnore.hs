@@ -15,13 +15,14 @@ module Neuron.Plugin.Plugins.NeuronIgnore
   )
 where
 
+import Control.Exception (throw, try)
 import Data.Default (Default (def))
 import qualified Data.Text as T
 import Neuron.Plugin.Type (Plugin (..))
 import Reflex.Dom.Core (fforMaybe)
 import Relude hiding (trace, traceShow, traceShowId)
-import qualified System.Directory.Contents as DC
 import System.FilePattern (FilePattern, (?==))
+import System.IO.Error (isDoesNotExistError)
 
 plugin :: Plugin ()
 plugin =
@@ -31,16 +32,19 @@ plugin =
 
 -- | Ignore files based on the top-level .neuronignore file. If the file does
 -- not exist, apply the default patterns.
-applyNeuronIgnore :: DC.DirTree FilePath -> IO (Maybe (DC.DirTree FilePath))
-applyNeuronIgnore t = do
-  -- Note that filterDirTree invokes the function only files, not directory paths
-  -- FIXME(performance): `filterADirTree` unfortunately won't filter directories; so
-  -- even if a top-level directory is configured to be ignored, this
-  -- filter will traverse that entire directory tree to apply the glob
-  -- pattern filter.
-  ignorePats :: [FilePattern] <- fmap (mandatoryIgnorePats <>) $ case DC.walkDirTree "./.neuronignore" t of
-    Just (DC.DirTree_File _ fp) -> do
-      ls <- T.lines <$> readFileText fp
+applyNeuronIgnore :: IO (FilePath -> Bool)
+applyNeuronIgnore = do
+  mContents <- do
+    result <- try $ readFileText "./.neuronignore"
+    case result of
+      Left err
+        | isDoesNotExistError err -> pure Nothing
+        | otherwise -> throw err
+      Right a -> pure $ Just a
+
+  ignorePats :: [FilePattern] <- fmap (mandatoryIgnorePats <>) $ case mContents of
+    Just contents -> do
+      let ls = T.lines contents
       pure $
         fforMaybe ls $ \(T.strip -> s) -> do
           guard $ not $ T.null s
@@ -49,8 +53,7 @@ applyNeuronIgnore t = do
           pure $ toString s
     _ ->
       pure defaultIgnorePats
-  let mTreeFiltered = DC.filterDirTree (includeDirEntry ignorePats) t
-  pure $ DC.pruneDirTree =<< mTreeFiltered
+  pure $ includeDirEntry ignorePats
   where
     defaultIgnorePats =
       [ -- Ignore dotfiles and dotdirs

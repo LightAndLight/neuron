@@ -29,7 +29,7 @@ data Plugin routeData = Plugin
   { -- | Markdown, custom parser
     _plugin_markdownSpec :: forall m il bl. NeuronSyntaxSpec m il bl => CM.SyntaxSpec m il bl,
     -- | Apply any filter on the source tree before beginning any processing
-    _plugin_filterSources :: DC.DirTree FilePath -> IO (Maybe (DC.DirTree FilePath)),
+    _plugin_filterSources :: IO (FilePath -> Bool),
     -- | Called after zettel files read into memory
     _plugin_afterZettelRead :: forall m. MonadState (Map ZettelID ZIDRef) m => DC.DirTree FilePath -> m (),
     -- | Called after zettel files are fully parsed
@@ -71,7 +71,7 @@ instance Default (Plugin a) where
   def =
     Plugin
       { _plugin_markdownSpec = mempty,
-        _plugin_filterSources = pure . Just,
+        _plugin_filterSources = pure $ const True,
         _plugin_afterZettelRead = void . pure,
         _plugin_afterZettelParse = id,
         _plugin_graphConnections = const $ pure mempty,

@@ -83,12 +83,12 @@ markdownSpec :: NeuronSyntaxSpec m il bl => PluginRegistry -> CM.SyntaxSpec m il
 markdownSpec plugins =
   mconcat $ Map.elems plugins <&> \sp -> withSome sp _plugin_markdownSpec
 
-filterSources :: PluginRegistry -> DC.DirTree FilePath -> IO (Maybe (DC.DirTree FilePath))
-filterSources plugins t = do
-  let applyF = Map.elems plugins <&> \sp -> withSome sp _plugin_filterSources
-      combiner :: (Traversable m, Monad m) => IO (m a) -> (a -> IO (m b)) -> IO (m b)
-      combiner = \ima f -> (fmap join . traverse f) =<< ima
-  foldl' combiner (pure $ Just t) applyF
+getFilterSources :: PluginRegistry -> IO (FilePath -> Bool)
+getFilterSources plugins = do
+  let applyF :: [IO (FilePath -> Bool)]
+      applyF = Map.elems plugins <&> \sp -> withSome sp _plugin_filterSources
+
+  foldr ((liftA2 . liftA2) (&&)) (pure $ const True) applyF
 
 afterZettelParse :: PluginRegistry -> [(ZettelID, (FilePath, (Text, DMap PluginZettelData Identity)))] -> [ZettelC]
 afterZettelParse plugins fs = do
