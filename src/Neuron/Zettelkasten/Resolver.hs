@@ -30,14 +30,24 @@ resolveZidRefsFromDirTree ::
   (FilePath -> m Text) ->
   DC.DirTree FilePath ->
   StateT (Map ZettelID ZIDRef) m ()
-resolveZidRefsFromDirTree readFileF = \case
+resolveZidRefsFromDirTree readFileF =
+  traverseZidsDirTree_
+    (\relPath zid -> addZettel relPath zid mempty $
+      lift $ readFileF relPath
+    )
+
+traverseZidsDirTree_ ::
+  Monad m =>
+  (FilePath -> ZettelID -> m ()) ->
+  DC.DirTree FilePath ->
+  m ()
+traverseZidsDirTree_ f = \case
   DC.DirTree_File relPath _ -> do
     whenJust (getZettelID relPath) $ \zid -> do
-      addZettel relPath zid mempty $
-        lift $ readFileF relPath
+      f relPath zid
   DC.DirTree_Dir _absPath contents -> do
     forM_ (Map.toList contents) $ \(_, ct) ->
-      resolveZidRefsFromDirTree readFileF ct
+      traverseZidsDirTree_ f ct
   _ ->
     -- We ignore symlinks, and paths configured to be excluded.
     pure ()

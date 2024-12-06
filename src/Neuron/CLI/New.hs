@@ -20,12 +20,10 @@ import qualified Data.Text as T
 import Data.Time.DateMayTime (DateMayTime, formatDateMayTime)
 import Neuron.CLI.Logging
 import Neuron.CLI.Types (MonadApp, NewCommand (..), getNotesDir)
-import qualified Neuron.Cache.Type as Cache
-import Neuron.Reactor as Reactor (loadZettelkasten)
-import qualified Neuron.Zettelkasten.Graph as G
+import Neuron.Reactor.Build (locateZettelFiles)
 import Neuron.Zettelkasten.ID (zettelIDSourceFileName)
 import qualified Neuron.Zettelkasten.ID.Scheme as IDScheme
-import Neuron.Zettelkasten.Zettel (zettelID)
+import Neuron.Zettelkasten.Resolver (traverseZidsDirTree_)
 import Relude
 import System.Directory (setCurrentDirectory)
 import System.FilePath ((</>))
@@ -37,16 +35,15 @@ import System.Posix.Process (executeFile)
 -- As well as print the path to the created file.
 newZettelFile :: (MonadIO m, MonadApp m, MonadFail m, WithLog env Message m) => NewCommand -> m ()
 newZettelFile NewCommand {..} = do
-  Reactor.loadZettelkasten >>= \case
+  locateZettelFiles >>= \case
     Left e -> fail $ toString e
-    Right (g, _, _) -> do
+    Right (_, t) -> do
       mzid <- withSome idScheme $ \scheme -> do
         val <- liftIO $ IDScheme.genVal scheme
-        pure $
-          IDScheme.nextAvailableZettelID
-            (Set.fromList $ fmap zettelID $ G.getZettels $ Cache.neuroncacheGraph g)
-            val
-            scheme
+        zettels <-
+          flip execStateT mempty $
+          traverseZidsDirTree_ (\_fp zid -> modify $ Set.insert zid) t
+        pure $ IDScheme.nextAvailableZettelID zettels val scheme
       case mzid of
         Left e -> die $ show e
         Right zid -> do
